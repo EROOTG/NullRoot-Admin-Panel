@@ -1,0 +1,1309 @@
+--[[
+    NullRoot Admin Panel — Ultimate
+    - 5-method rank detection (RankChanged signal + RetrieveRankInfo + attributes + UI header + chat)
+    - 3-phase escalation (chat → remote → race)
+    - Full GUI panel
+    - Prefix ";"
+]]
+
+getgenv().NullRoot = getgenv().NullRoot or {}
+local NR = getgenv().NullRoot
+
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local TextChatService = game:GetService("TextChatService")
+local LP = Players.LocalPlayer
+
+local parent = (gethui and gethui()) or LP:WaitForChild("PlayerGui")
+pcall(function() parent:FindFirstChild("NullRoot_AdminPanel"):Destroy() end)
+
+-- ═══════════════════════════════════════════════════════════
+-- HD ADMIN COMMANDS BY RANK
+-- ═══════════════════════════════════════════════════════════
+local HD_COMMANDS = {
+    [1] = {
+        {"fly",true},{"unfly",true},{"noclip",true},{"speed",true},
+        {"jump",true},{"sit",true},{"spin",true},{"refresh",true},
+        {"rejoin",false},
+    },
+    [2] = {
+        {"fly",true},{"unfly",true},{"noclip",true},{"speed",true},
+        {"jump",true},{"sit",true},{"spin",true},{"refresh",true},
+        {"bring",true},{"goto",true},{"heal",true},{"freeze",true},
+        {"thaw",true},{"invisible",true},{"visible",true},{"respawn",true},
+        {"ff",true},{"unff",true},{"god",true},{"ungod",true},
+        {"helicopter",true},{"plane",true},{"tank",true},{"car",true},
+        {"ratDance",true},{"cuteSit",true},{"fakeDeath",true},
+        {"box",true},{"worm",true},{"phase",true},{"dog",true},
+        {"aura",true},{"emotes",true},{"emote",true},{"tp",true},
+        {"teleport",true},
+    },
+    [3] = {
+        {"fly",true},{"unfly",true},{"noclip",true},{"speed",true},
+        {"jump",true},{"sit",true},{"spin",true},{"refresh",true},
+        {"bring",true},{"goto",true},{"heal",true},{"freeze",true},
+        {"thaw",true},{"invisible",true},{"visible",true},{"respawn",true},
+        {"ff",true},{"unff",true},{"god",true},{"ungod",true},
+        {"helicopter",true},{"plane",true},{"tank",true},{"car",true},
+        {"ratDance",true},{"cuteSit",true},{"fakeDeath",true},
+        {"box",true},{"worm",true},{"phase",true},{"dog",true},
+        {"aura",true},{"emotes",true},{"emote",true},{"tp",true},
+        {"kill",true},{"kick",true},{"mute",true},{"unmute",true},
+        {"punish",true},{"time",true},{"fog",false},{"disco",false},
+        {"rank",true},{"tempRank",true},{"unRank",true},
+        {"explode",true},{"burn",true},{"damage",true},
+    },
+    [4] = {
+        {"fly",true},{"unfly",true},{"noclip",true},{"speed",true},
+        {"jump",true},{"sit",true},{"spin",true},{"refresh",true},
+        {"bring",true},{"goto",true},{"heal",true},{"freeze",true},
+        {"thaw",true},{"invisible",true},{"visible",true},{"respawn",true},
+        {"ff",true},{"unff",true},{"god",true},{"ungod",true},
+        {"helicopter",true},{"plane",true},{"tank",true},{"car",true},
+        {"ratDance",true},{"cuteSit",true},{"fakeDeath",true},
+        {"box",true},{"worm",true},{"phase",true},{"dog",true},
+        {"aura",true},{"emotes",true},{"emote",true},{"tp",true},
+        {"kill",true},{"kick",true},{"mute",true},{"unmute",true},
+        {"punish",true},{"time",true},{"fog",false},{"disco",false},
+        {"rank",true},{"tempRank",true},{"unRank",true},
+        {"explode",true},{"burn",true},{"damage",true},
+        {"ban",true},{"unban",true},{"timeBan",true},{"directBan",true},
+        {"serverLock",false},{"shutdown",false},{"crash",false},
+        {"globalAlert",false},{"globalVote",false},{"permRank",true},
+        {"respawnAll",false},{"killAll",false},{"freezeAll",false},
+    },
+    [5] = {
+        {"fly",true},{"unfly",true},{"noclip",true},{"speed",true},
+        {"jump",true},{"sit",true},{"spin",true},{"refresh",true},
+        {"bring",true},{"goto",true},{"heal",true},{"freeze",true},
+        {"thaw",true},{"invisible",true},{"visible",true},{"respawn",true},
+        {"ff",true},{"unff",true},{"god",true},{"ungod",true},
+        {"helicopter",true},{"plane",true},{"tank",true},{"car",true},
+        {"ratDance",true},{"cuteSit",true},{"fakeDeath",true},
+        {"box",true},{"worm",true},{"phase",true},{"dog",true},
+        {"aura",true},{"emotes",true},{"emote",true},{"tp",true},
+        {"kill",true},{"kick",true},{"mute",true},{"unmute",true},
+        {"punish",true},{"time",true},{"fog",false},{"disco",false},
+        {"rank",true},{"tempRank",true},{"unRank",true},
+        {"explode",true},{"burn",true},{"damage",true},
+        {"ban",true},{"unban",true},{"timeBan",true},{"directBan",true},
+        {"serverLock",false},{"shutdown",false},{"crash",false},
+        {"globalAlert",false},{"globalVote",false},{"permRank",true},
+        {"respawnAll",false},{"killAll",false},{"freezeAll",false},
+        {"permBan",true},{"globalPlace",false},{"globalForcePlace",false},
+    },
+}
+
+local RANK_NAMES = {[0]="Guest",[1]="VIP",[2]="Mod",[3]="Admin",[4]="HeadAdmin",[5]="Owner"}
+
+-- ═══════════════════════════════════════════════════════════
+-- CONFIG
+-- ═══════════════════════════════════════════════════════════
+local CONFIG = {
+    BATCH_SIZE = 100,
+    BATCH_WAIT = 0.15,
+    SETTLE = 2.5,
+    RACE_COUNT = 50,
+    AUTO_ESCALATE = true,
+    DETECT_INTERVAL = 2,  -- seconds between detect passes
+    
+    CHAT_ESCALATION = {
+        ";rank me Owner",
+        ";rank me HeadAdmin",
+        ";rank me Admin",
+        ";permRank me Owner",
+        ";tempRank me Owner",
+        ";rank me Mod",
+        ";tempRank me Mod",
+        ";buyAdmin Owner",
+        ";buyAdmin Mod",
+        ";unlock Owner",
+        ";grant me Owner",
+    },
+    
+    PAYLOADS = {
+        {args = {"SetRank", LP, "Owner", "Perm"}, label = "API-SetRank-Owner"},
+        {args = {"SetRank", LP, 5, "Perm"}, label = "API-SetRank-5"},
+        {args = {"SetRank", LP.UserId, "Owner", "Perm"}, label = "SetRank-uid-Owner"},
+        {args = {"SetRank", LP.UserId, 5, "Perm"}, label = "SetRank-uid-5"},
+        {args = {"SetRank", LP.UserId, 4, "Perm"}, label = "SetRank-uid-4"},
+        {args = {"SetRank", LP.UserId, 3, "Perm"}, label = "SetRank-uid-3"},
+        {args = {"RequestRank", LP.UserId, 5}, label = "ReqRank-5"},
+        {args = {"RequestRank", LP.UserId, 254}, label = "ReqRank-254"},
+        {args = {"RequestRank", LP.UserId, 255}, label = "ReqRank-255"},
+        {args = {"RequestRank", LP.UserId, "Owner"}, label = "ReqRank-Owner"},
+        {args = {"buyAdmin", "Owner", 0}, label = "buyAdmin-Owner-0"},
+        {args = {"buyAdmin", "Owner", -1}, label = "buyAdmin-Owner-neg"},
+        {args = {"buyAdmin", "Mod", 0}, label = "buyAdmin-Mod-0"},
+        {args = {"Purchase", "Owner"}, label = "Purchase-Owner"},
+        {args = {"Purchase", LP.UserId, "Owner"}, label = "Purchase-uid"},
+        {args = {"Grant", "Owner"}, label = "Grant-Owner"},
+        {args = {"GrantRank", LP.UserId, "Owner"}, label = "GrantRank-Owner"},
+        {args = {"GrantRank", LP.UserId, 5}, label = "GrantRank-5"},
+        {args = {"MakeOwner", LP.UserId}, label = "MakeOwner"},
+        {args = {"Admin", true}, label = "Admin-true"},
+        {args = {"Admin", 1}, label = "Admin-1"},
+        {args = {{Action = "SetRank", Rank = "Owner", RankType = "Perm"}}, label = "Tbl-SetRank"},
+        {args = {{Action = "Buy", Item = "Owner"}}, label = "Tbl-Buy"},
+        {args = {{Action = "Unlock", Type = "Admin"}}, label = "Tbl-Unlock"},
+        {args = {{Rank = "Owner"}}, label = "Tbl-Rank"},
+        {args = {{rank = 5, price = 0}}, label = "Tbl-rank-price0"},
+        {args = {"SetRank", game.CreatorId, "Owner", "Perm"}, label = "Spoof-Creator"},
+        {args = {}, label = "NoArgs"},
+    },
+}
+
+-- ═══════════════════════════════════════════════════════════
+-- PALETTE
+-- ═══════════════════════════════════════════════════════════
+local C_BG       = Color3.fromRGB(255, 255, 255)
+local C_BG2      = Color3.fromRGB(245, 245, 245)
+local C_BG3      = Color3.fromRGB(252, 252, 252)
+local C_BG_HOVER = Color3.fromRGB(235, 235, 235)
+local C_BORDER   = Color3.fromRGB(0, 0, 0)
+local C_TEXT     = Color3.fromRGB(20, 20, 20)
+local C_TEXT_DIM = Color3.fromRGB(120, 120, 120)
+local C_LOCKED   = Color3.fromRGB(170, 170, 170)
+local C_ACCENT   = Color3.fromRGB(180, 20, 40)
+local C_SUCCESS  = Color3.fromRGB(0, 140, 60)
+local C_WARN     = Color3.fromRGB(200, 120, 0)
+
+-- ═══════════════════════════════════════════════════════════
+-- STATE
+-- ═══════════════════════════════════════════════════════════
+local State = {
+    injected = false,
+    achievedRank = 0,
+    currentRank = 0,
+    achievedName = "Guest",
+    currentName = "Guest",
+    commandButtons = {},
+    log = {},
+    hitPayload = nil,
+    hitSource = nil,
+    rankHooked = false,
+}
+
+NR.State = State
+
+function NR.addLog(msg)
+    local line = "[" .. os.date("%H:%M:%S") .. "] " .. msg
+    table.insert(State.log, line)
+    print("[NR] " .. msg)
+end
+
+function NR.notify(title, text, duration)
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = title, Text = text, Duration = duration or 4,
+        })
+    end)
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- RANK PARSER
+-- ═══════════════════════════════════════════════════════════
+local function nameToLevel(name)
+    if not name then return nil end
+    local l = tostring(name):lower()
+    if l:find("owner") then return 5 end
+    if l:find("headadmin") or l:find("superadmin") then return 4 end
+    if l:find("admin") and not l:find("nonadmin") then return 3 end
+    if l:find("mod") then return 2 end
+    if l:find("vip") then return 1 end
+    if l:find("nonadmin") or l:find("guest") then return 0 end
+    return nil
+end
+
+local function parseRank(v)
+    if v == nil then return nil end
+    if type(v) == "number" then
+        if v >= 0 and v <= 5 then return v end
+        if v == 254 or v == 255 then return 5 end
+    end
+    if type(v) == "table" then
+        if v.RankId then return tonumber(v.RankId) end
+        if v.Level then return tonumber(v.Level) end
+        if v.RankName then return nameToLevel(v.RankName) end
+        if v.Rank then return type(v.Rank) == "number" and v.Rank or nameToLevel(v.Rank) end
+        return nil
+    end
+    return nameToLevel(tostring(v))
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- RANK STATE
+-- ═══════════════════════════════════════════════════════════
+local function updateUIRank()
+    if NR.rankLabel then
+        NR.rankLabel.Text = string.format("● %s (%d)", State.currentName, State.currentRank)
+        if State.currentRank >= 4 then
+            NR.rankLabel.TextColor3 = C_SUCCESS
+        elseif State.currentRank >= 2 then
+            NR.rankLabel.TextColor3 = C_WARN
+        elseif State.currentRank >= 1 then
+            NR.rankLabel.TextColor3 = C_ACCENT
+        else
+            NR.rankLabel.TextColor3 = C_TEXT_DIM
+        end
+    end
+    if NR.rankStatus then
+        NR.rankStatus.Text = string.format("Commands: %d | %s (%d) | src: %s",
+            #State.commandButtons, State.currentName, State.currentRank,
+            State.hitSource or "—")
+    end
+    if NR.rankSelectBtn then
+        NR.rankSelectBtn.Text = "Rank: " .. State.currentName
+    end
+end
+
+local function setAchieved(level, source)
+    if not level or level <= State.achievedRank then return false end
+    State.achievedRank = level
+    State.achievedName = RANK_NAMES[level] or ("L" .. level)
+    State.hitSource = source
+    NR.addLog(string.format("*** ACHIEVED: %s (%d) via %s ***",
+        State.achievedName, level, source))
+    NR.notify("Rank Up!", State.achievedName .. " (" .. level .. ")", 5)
+    
+    if level > State.currentRank then
+        State.currentRank = level
+        State.currentName = State.achievedName
+        updateUIRank()
+        if NR.generateButtons then NR.generateButtons() end
+    end
+    return true
+end
+
+NR.setAchieved = setAchieved
+
+local function setCurrent(level)
+    if level > State.achievedRank then
+        NR.addLog("cannot select rank above achieved (" .. State.achievedRank .. ")")
+        return false
+    end
+    State.currentRank = level
+    State.currentName = RANK_NAMES[level] or ("L" .. level)
+    updateUIRank()
+    if NR.generateButtons then NR.generateButtons() end
+    return true
+end
+
+NR.setCurrent = setCurrent
+
+-- ═══════════════════════════════════════════════════════════
+-- DETECTION #1: RankChanged signal
+-- ═══════════════════════════════════════════════════════════
+local function hookRankChanged()
+    if State.rankHooked then return end
+    local hd = RS:FindFirstChild("HDAdminClient")
+    local signals = hd and hd:FindFirstChild("Signals")
+    local rc = signals and signals:FindFirstChild("RankChanged")
+    if rc and rc:IsA("RemoteEvent") then
+        State.rankHooked = true
+        rc.OnClientEvent:Connect(function(newRank)
+            local lvl = parseRank(newRank)
+            if lvl then setAchieved(lvl, "RankChanged-signal") end
+        end)
+        NR.addLog("hooked RankChanged signal")
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- DETECTION #2: RetrieveRankInfo
+-- ═══════════════════════════════════════════════════════════
+local function queryRetrieveRankInfo()
+    local hd = RS:FindFirstChild("HDAdminClient")
+    local signals = hd and hd:FindFirstChild("Signals")
+    local rri = signals and signals:FindFirstChild("RetrieveRankInfo")
+    if not rri or rri.ClassName ~= "RemoteFunction" then return end
+    
+    local sigs = {{LP}, {LP.UserId}, {}, {LP.Name}}
+    for _, args in ipairs(sigs) do
+        local ok, result = pcall(function()
+            return rri:InvokeServer(table.unpack(args))
+        end)
+        if ok and result then
+            local lvl = parseRank(result)
+            if lvl then
+                setAchieved(lvl, "RetrieveRankInfo")
+                return
+            end
+        end
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- DETECTION #3: Attributes
+-- ═══════════════════════════════════════════════════════════
+local function scanAttributes()
+    for k, v in pairs(LP:GetAttributes()) do
+        local l = k:lower()
+        if l:find("rank") or l:find("admin") or l:find("hd") then
+            local lvl = parseRank(v)
+            if lvl then setAchieved(lvl, "attr:" .. k) end
+        end
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- DETECTION #4: HD Admin UI header
+-- ═══════════════════════════════════════════════════════════
+local function scanUIHeader()
+    for _, gui in ipairs(parent:GetChildren()) do
+        if gui:IsA("ScreenGui") then
+            local gname = gui.Name:lower()
+            if gname:find("hd") or gname:find("admin") or gname:find("command") then
+                for _, v in ipairs(gui:GetDescendants()) do
+                    if v:IsA("TextLabel") and v.Text then
+                        local lvl = parseRank(v.Text)
+                        if lvl then setAchieved(lvl, "ui-header") end
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- DETECTION #5: Chat log scan
+-- ═══════════════════════════════════════════════════════════
+local function scanChatLog()
+    for _, gui in ipairs(parent:GetChildren()) do
+        if gui:IsA("ScreenGui") and gui.Name:lower():find("chat") then
+            for _, v in ipairs(gui:GetDescendants()) do
+                if v:IsA("TextLabel") and v.Text then
+                    local lvl = parseRank(v.Text)
+                    if lvl then setAchieved(lvl, "chat-log") end
+                end
+            end
+        end
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- DETECT RUNNER
+-- ═══════════════════════════════════════════════════════════
+local function detect()
+    pcall(hookRankChanged)
+    pcall(queryRetrieveRankInfo)
+    pcall(scanAttributes)
+    pcall(scanUIHeader)
+    pcall(scanChatLog)
+end
+
+NR.detect = detect
+
+-- ═══════════════════════════════════════════════════════════
+-- CHAT EXECUTION
+-- ═══════════════════════════════════════════════════════════
+function NR.sendChat(cmd)
+    if cmd == "" then return false end
+    local sent = false
+    
+    pcall(function()
+        if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+            local ch = TextChatService:FindFirstChild("TextChannels")
+            local gen = ch and (ch:FindFirstChild("RBXGeneral") or ch:FindFirstChildWhichIsA("TextChannel"))
+            if gen then gen:SendAsync(cmd); sent = true end
+        end
+    end)
+    
+    if not sent then
+        pcall(function()
+            local ev = RS:FindFirstChild("DefaultChatSystemChatEvents")
+            local sm = ev and ev:FindFirstChild("SayMessageRequest")
+            if sm then sm:FireServer(cmd, "All"); sent = true end
+        end)
+    end
+    
+    return sent
+end
+
+function NR.executeCommand(cmd)
+    if cmd == "" then return end
+    cmd = cmd:gsub("%s+me%s*$", ""):gsub("%s+self%s*$", "")
+    if cmd == "" then return end
+    NR.addLog("> " .. cmd)
+    NR.sendChat(cmd)
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- REMOTE COLLECTION
+-- ═══════════════════════════════════════════════════════════
+local function collectRemotes()
+    local suspects, nonHD = {}, {}
+    local SUSPECT_NAMES = {
+        "purchase","buy","admin","mod","rank","grant","unlock",
+        "claim","coin","shop","prompt","store","set","request",
+        "make","promote","give",
+    }
+    for _, v in ipairs(game:GetDescendants()) do
+        if v:IsA("RemoteEvent") then
+            local path = v:GetFullName()
+            if not path:find("RobloxReplicatedStorage")
+               and not path:find("DefaultChatSystemChatEvents")
+               and v.Name ~= "__FUNCTION" then
+                if not path:find("HDAdmin") then
+                    table.insert(nonHD, v)
+                    local n = v.Name:lower()
+                    for _, c in ipairs(SUSPECT_NAMES) do
+                        if n:find(c) then table.insert(suspects, v); break end
+                    end
+                end
+            end
+        end
+    end
+    return { suspects = suspects, nonHD = nonHD }
+end
+
+local function fireParallel(remotes, args)
+    local r = {}
+    for _, v in ipairs(args) do
+        if v == nil then table.insert(r, LP.UserId)
+        else table.insert(r, v) end
+    end
+    local isTbl = type(r[1]) == "table"
+    for i = 1, #remotes, CONFIG.BATCH_SIZE do
+        local stop = math.min(i + CONFIG.BATCH_SIZE - 1, #remotes)
+        for j = i, stop do
+            local remote = remotes[j]
+            task.spawn(function()
+                pcall(function()
+                    if isTbl then remote:FireServer(r[1])
+                    else remote:FireServer(table.unpack(r)) end
+                end)
+            end)
+        end
+        task.wait(CONFIG.BATCH_WAIT)
+    end
+end
+
+local function raceFire(remotes, args)
+    local r = {}
+    for _, v in ipairs(args) do
+        if v == nil then table.insert(r, LP.UserId)
+        else table.insert(r, v) end
+    end
+    for _, remote in ipairs(remotes) do
+        for i = 1, CONFIG.RACE_COUNT do
+            task.spawn(function()
+                pcall(function() remote:FireServer(table.unpack(r)) end)
+            end)
+        end
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- CONTINUOUS DETECT LOOP
+-- ═══════════════════════════════════════════════════════════
+task.spawn(function()
+    while true do
+        task.wait(CONFIG.DETECT_INTERVAL)
+        detect()
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════
+-- NOTIFICATION WATCHER
+-- ═══════════════════════════════════════════════════════════
+local function watchNotifications()
+    task.spawn(function()
+        while true do
+            task.wait(0.3)
+            pcall(function()
+                local containers = {
+                    CoreGui:FindFirstChild("NotificationRoot"),
+                    parent:FindFirstChild("NotificationRoot"),
+                }
+                for _, nc in ipairs(containers) do
+                    if nc then
+                        for _, v in ipairs(nc:GetDescendants()) do
+                            if v:IsA("TextLabel") and v.Text and v.Text ~= "" then
+                                local text = v.Text
+                                local rankName = text:match("tempRanked to '([^']+)'")
+                                    or text:match("permRanked to '([^']+)'")
+                                    or text:match("ranked to '([^']+)'")
+                                    or text:match("you are now (%a+)")
+                                local rankLevel = text:match("%((%d+)%)")
+                                if rankName then
+                                    rankName = rankName:gsub("!$", "")
+                                    local lvl = tonumber(rankLevel) or nameToLevel(rankName)
+                                    if lvl then setAchieved(lvl, "notif") end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- ESCALATION — 3 phases
+-- ═══════════════════════════════════════════════════════════
+local function escalate()
+    NR.addLog("═══════════════════════════════════════")
+    NR.addLog("ESCALATION START")
+    NR.addLog("═══════════════════════════════════════")
+    
+    -- Initial detect
+    detect()
+    task.wait(0.5)
+    NR.addLog("initial: " .. State.currentName .. " (" .. State.currentRank .. ")")
+    
+    -- Phase 1: Chat
+    NR.addLog("--- PHASE 1: Chat commands ---")
+    for i, cmd in ipairs(CONFIG.CHAT_ESCALATION) do
+        NR.addLog(string.format("[%d/%d] %s", i, #CONFIG.CHAT_ESCALATION, cmd))
+        local before = State.achievedRank
+        NR.sendChat(cmd)
+        task.wait(CONFIG.SETTLE)
+        detect()
+        if State.achievedRank > before then
+            NR.addLog(">>> HIT via chat: " .. cmd)
+            if State.achievedRank >= 4 then
+                NR.addLog("reached Admin+ — done")
+                return State.achievedRank
+            end
+        end
+    end
+    
+    -- Phase 2: Remotes
+    NR.addLog("--- PHASE 2: Remote payloads ---")
+    local remotes = collectRemotes()
+    local targets = {}
+    for _, r in ipairs(remotes.suspects) do table.insert(targets, r) end
+    for _, r in ipairs(remotes.nonHD) do
+        local dup = false
+        for _, t in ipairs(targets) do if t == r then dup = true break end end
+        if not dup then table.insert(targets, r) end
+    end
+    NR.addLog(string.format("targets: %d (suspects: %d)", #targets, #remotes.suspects))
+    
+    for i, p in ipairs(CONFIG.PAYLOADS) do
+        NR.addLog(string.format("[%d/%d] %s", i, #CONFIG.PAYLOADS, p.label))
+        local before = State.achievedRank
+        fireParallel(targets, p.args)
+        task.wait(CONFIG.SETTLE)
+        detect()
+        if State.achievedRank > before then
+            State.hitPayload = p
+            NR.addLog(">>> HIT: " .. p.label)
+            if State.achievedRank >= 4 then
+                NR.addLog("reached Admin+ — done")
+                return State.achievedRank
+            end
+        end
+    end
+    
+    -- Phase 3: Race
+    NR.addLog("--- PHASE 3: Race condition ---")
+    local RACE = {
+        {"SetRank", LP.UserId, "Owner", "Perm"},
+        {"SetRank", LP.UserId, 5, "Perm"},
+        {"buyAdmin", "Owner", 0},
+        {"RequestRank", LP.UserId, 255},
+    }
+    for _, args in ipairs(RACE) do
+        raceFire(remotes.suspects, args)
+        task.wait(1.5)
+    end
+    task.wait(CONFIG.SETTLE)
+    detect()
+    
+    NR.addLog("═══════════════════════════════════════")
+    NR.addLog(string.format("DONE — highest: %s (%d) via %s",
+        State.achievedName, State.achievedRank, State.hitSource or "—"))
+    NR.addLog("═══════════════════════════════════════")
+    return State.achievedRank
+end
+
+NR.escalate = escalate
+
+-- ═══════════════════════════════════════════════════════════
+-- GUI
+-- ═══════════════════════════════════════════════════════════
+local gui = Instance.new("ScreenGui")
+gui.Name = "NullRoot_AdminPanel"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = parent
+if syn and syn.protect_gui then pcall(syn.protect_gui, gui) end
+NR.gui = gui
+
+local win = Instance.new("Frame")
+win.Size = UDim2.new(0, 780, 0, 540)
+win.Position = UDim2.new(0.5, -390, 0.5, -270)
+win.BackgroundColor3 = C_BG
+win.BorderSizePixel = 0
+win.Active = true
+win.Draggable = true
+win.ClipsDescendants = false
+win.Parent = gui
+win.ZIndex = 1
+
+local winStroke = Instance.new("UIStroke", win)
+winStroke.Color = C_BORDER
+winStroke.Thickness = 2
+
+local bar = Instance.new("Frame")
+bar.Size = UDim2.new(1, 0, 0, 30)
+bar.BackgroundColor3 = C_BG2
+bar.BorderSizePixel = 0
+bar.Parent = win
+bar.ZIndex = 2
+
+local barLine = Instance.new("Frame")
+barLine.Size = UDim2.new(1, 0, 0, 1)
+barLine.Position = UDim2.new(0, 0, 1, -1)
+barLine.BackgroundColor3 = C_BORDER
+barLine.BorderSizePixel = 0
+barLine.Parent = bar
+barLine.ZIndex = 3
+
+local logo = Instance.new("TextLabel")
+logo.Size = UDim2.new(0, 24, 0, 24)
+logo.Position = UDim2.new(0, 4, 0, 3)
+logo.BackgroundTransparency = 1
+logo.Text = "N"
+logo.TextColor3 = C_ACCENT
+logo.Font = Enum.Font.GothamBlack
+logo.TextSize = 22
+logo.Rotation = -12
+logo.Parent = bar
+logo.ZIndex = 4
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -220, 1, 0)
+title.Position = UDim2.new(0, 32, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "NullRoot Admin Panel"
+title.TextColor3 = C_TEXT
+title.Font = Enum.Font.SourceSans
+title.TextSize = 14
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = bar
+title.ZIndex = 4
+
+local rankLabel = Instance.new("TextLabel")
+rankLabel.Size = UDim2.new(0, 180, 1, 0)
+rankLabel.Position = UDim2.new(1, -240, 0, 0)
+rankLabel.BackgroundTransparency = 1
+rankLabel.Text = "● Guest (0)"
+rankLabel.TextColor3 = C_TEXT_DIM
+rankLabel.Font = Enum.Font.Code
+rankLabel.TextSize = 12
+rankLabel.TextXAlignment = Enum.TextXAlignment.Right
+rankLabel.Parent = bar
+rankLabel.ZIndex = 4
+NR.rankLabel = rankLabel
+
+local minimize = Instance.new("TextButton")
+minimize.Size = UDim2.new(0, 24, 0, 22)
+minimize.Position = UDim2.new(1, -52, 0, 4)
+minimize.BackgroundColor3 = C_BG2
+minimize.BorderSizePixel = 0
+minimize.Text = "–"
+minimize.TextColor3 = C_TEXT
+minimize.Font = Enum.Font.SourceSans
+minimize.TextSize = 16
+minimize.AutoButtonColor = false
+minimize.Parent = bar
+minimize.ZIndex = 4
+
+local close = Instance.new("TextButton")
+close.Size = UDim2.new(0, 24, 0, 22)
+close.Position = UDim2.new(1, -26, 0, 4)
+close.BackgroundColor3 = C_BG2
+close.BorderSizePixel = 0
+close.Text = "×"
+close.TextColor3 = C_TEXT
+close.Font = Enum.Font.SourceSans
+close.TextSize = 16
+close.AutoButtonColor = false
+close.Parent = bar
+close.ZIndex = 4
+
+close.MouseEnter:Connect(function()
+    close.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+    close.TextColor3 = Color3.fromRGB(255, 255, 255)
+end)
+close.MouseLeave:Connect(function()
+    close.BackgroundColor3 = C_BG2
+    close.TextColor3 = C_TEXT
+end)
+
+-- Overlay
+local overlay = Instance.new("Frame")
+overlay.Size = UDim2.new(1, 0, 1, 0)
+overlay.BackgroundColor3 = C_BG
+overlay.BorderSizePixel = 0
+overlay.ZIndex = 1000
+overlay.Parent = win
+
+local overlayContent = Instance.new("Frame")
+overlayContent.Size = UDim2.new(0, 500, 0, 120)
+overlayContent.AnchorPoint = Vector2.new(0.5, 0.5)
+overlayContent.Position = UDim2.new(0.5, 0, 0.5, 0)
+overlayContent.BackgroundTransparency = 1
+overlayContent.ZIndex = 1001
+overlayContent.Parent = overlay
+
+local bigLogo = Instance.new("TextLabel")
+bigLogo.Size = UDim2.new(1, 0, 0, 50)
+bigLogo.BackgroundTransparency = 1
+bigLogo.Text = "N"
+bigLogo.TextColor3 = C_ACCENT
+bigLogo.Font = Enum.Font.GothamBlack
+bigLogo.TextSize = 48
+bigLogo.Rotation = -12
+bigLogo.ZIndex = 1002
+bigLogo.Parent = overlayContent
+
+local bigTitle = Instance.new("TextLabel")
+bigTitle.Size = UDim2.new(1, 0, 0, 20)
+bigTitle.Position = UDim2.new(0, 0, 0, 56)
+bigTitle.BackgroundTransparency = 1
+bigTitle.Text = "N U L L R O O T"
+bigTitle.TextColor3 = C_TEXT
+bigTitle.Font = Enum.Font.GothamBold
+bigTitle.TextSize = 16
+bigTitle.ZIndex = 1002
+bigTitle.Parent = overlayContent
+
+local progressLabel = Instance.new("TextLabel")
+progressLabel.Size = UDim2.new(1, 0, 0, 16)
+progressLabel.Position = UDim2.new(0, 0, 0, 84)
+progressLabel.BackgroundTransparency = 1
+progressLabel.Text = "Initializing..."
+progressLabel.TextColor3 = C_TEXT_DIM
+progressLabel.Font = Enum.Font.Code
+progressLabel.TextSize = 12
+progressLabel.ZIndex = 1002
+progressLabel.Parent = overlayContent
+
+local progressBarBg = Instance.new("Frame")
+progressBarBg.Size = UDim2.new(0, 400, 0, 14)
+progressBarBg.AnchorPoint = Vector2.new(0.5, 0)
+progressBarBg.Position = UDim2.new(0.5, 0, 0, 106)
+progressBarBg.BackgroundColor3 = C_BG2
+progressBarBg.BorderSizePixel = 0
+progressBarBg.ZIndex = 1002
+progressBarBg.Parent = overlayContent
+
+local pbBgStroke = Instance.new("UIStroke", progressBarBg)
+pbBgStroke.Color = C_BORDER
+pbBgStroke.Thickness = 1
+
+local progressBarFill = Instance.new("Frame")
+progressBarFill.Size = UDim2.new(0, 0, 1, 0)
+progressBarFill.BackgroundColor3 = C_ACCENT
+progressBarFill.BorderSizePixel = 0
+progressBarFill.ZIndex = 1003
+progressBarFill.Parent = progressBarBg
+
+local function setProgress(pct, text)
+    TweenService:Create(progressBarFill, TweenInfo.new(0.2), {
+        Size = UDim2.new(pct, 0, 1, 0)
+    }):Play()
+    if text then progressLabel.Text = text end
+end
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(1, -24, 1, -104)
+mainFrame.Position = UDim2.new(0, 12, 0, 38)
+mainFrame.BackgroundColor3 = C_BG3
+mainFrame.BorderSizePixel = 0
+mainFrame.ClipsDescendants = false
+mainFrame.Visible = false
+mainFrame.Parent = win
+mainFrame.ZIndex = 2
+
+local mfStroke = Instance.new("UIStroke", mainFrame)
+mfStroke.Color = C_BORDER
+mfStroke.Thickness = 1
+
+local playerRow = Instance.new("Frame")
+playerRow.Size = UDim2.new(1, -16, 0, 30)
+playerRow.Position = UDim2.new(0, 8, 0, 8)
+playerRow.BackgroundTransparency = 1
+playerRow.Parent = mainFrame
+playerRow.ZIndex = 3
+
+local playerInputContainer = Instance.new("Frame")
+playerInputContainer.Size = UDim2.new(0, 200, 1, 0)
+playerInputContainer.BackgroundColor3 = C_BG
+playerInputContainer.BorderSizePixel = 0
+playerInputContainer.ZIndex = 4
+playerInputContainer.Parent = playerRow
+
+local picStroke = Instance.new("UIStroke", playerInputContainer)
+picStroke.Color = C_BORDER
+picStroke.Thickness = 1
+
+local playerInput = Instance.new("TextBox")
+playerInput.Size = UDim2.new(1, -28, 1, 0)
+playerInput.Position = UDim2.new(0, 6, 0, 0)
+playerInput.BackgroundTransparency = 1
+playerInput.Text = ""
+playerInput.PlaceholderText = "<player>"
+playerInput.PlaceholderColor3 = C_TEXT_DIM
+playerInput.TextColor3 = C_TEXT
+playerInput.Font = Enum.Font.Code
+playerInput.TextSize = 12
+playerInput.TextXAlignment = Enum.TextXAlignment.Left
+playerInput.ClearTextOnFocus = false
+playerInput.ZIndex = 5
+playerInput.Parent = playerInputContainer
+
+local playerArrow = Instance.new("TextButton")
+playerArrow.Size = UDim2.new(0, 24, 1, 0)
+playerArrow.Position = UDim2.new(1, -26, 0, 0)
+playerArrow.BackgroundTransparency = 1
+playerArrow.Text = "▼"
+playerArrow.TextColor3 = C_TEXT_DIM
+playerArrow.Font = Enum.Font.SourceSans
+playerArrow.TextSize = 10
+playerArrow.AutoButtonColor = false
+playerArrow.ZIndex = 5
+playerArrow.Parent = playerInputContainer
+
+local rankSelectContainer = Instance.new("Frame")
+rankSelectContainer.Size = UDim2.new(0, 130, 1, 0)
+rankSelectContainer.Position = UDim2.new(0, 208, 0, 0)
+rankSelectContainer.BackgroundColor3 = C_BG
+rankSelectContainer.BorderSizePixel = 0
+rankSelectContainer.ZIndex = 4
+rankSelectContainer.Parent = playerRow
+
+local rsStroke = Instance.new("UIStroke", rankSelectContainer)
+rsStroke.Color = C_BORDER
+rsStroke.Thickness = 1
+
+local rankSelectBtn = Instance.new("TextButton")
+rankSelectBtn.Size = UDim2.new(1, -24, 1, 0)
+rankSelectBtn.Position = UDim2.new(0, 6, 0, 0)
+rankSelectBtn.BackgroundTransparency = 1
+rankSelectBtn.Text = "Rank: Guest"
+rankSelectBtn.TextColor3 = C_TEXT
+rankSelectBtn.Font = Enum.Font.Code
+rankSelectBtn.TextSize = 11
+rankSelectBtn.TextXAlignment = Enum.TextXAlignment.Left
+rankSelectBtn.AutoButtonColor = false
+rankSelectBtn.ZIndex = 5
+rankSelectBtn.Parent = rankSelectContainer
+NR.rankSelectBtn = rankSelectBtn
+
+local rankSelectArrow = Instance.new("TextButton")
+rankSelectArrow.Size = UDim2.new(0, 24, 1, 0)
+rankSelectArrow.Position = UDim2.new(1, -26, 0, 0)
+rankSelectArrow.BackgroundTransparency = 1
+rankSelectArrow.Text = "▼"
+rankSelectArrow.TextColor3 = C_TEXT_DIM
+rankSelectArrow.Font = Enum.Font.SourceSans
+rankSelectArrow.TextSize = 10
+rankSelectArrow.AutoButtonColor = false
+rankSelectArrow.ZIndex = 5
+rankSelectArrow.Parent = rankSelectContainer
+
+local refreshBtn = Instance.new("TextButton")
+refreshBtn.Size = UDim2.new(0, 80, 1, 0)
+refreshBtn.Position = UDim2.new(0, 346, 0, 0)
+refreshBtn.BackgroundColor3 = C_BG
+refreshBtn.BorderSizePixel = 0
+refreshBtn.Text = "Refresh"
+refreshBtn.TextColor3 = C_TEXT
+refreshBtn.Font = Enum.Font.SourceSans
+refreshBtn.TextSize = 12
+refreshBtn.AutoButtonColor = false
+refreshBtn.ZIndex = 4
+refreshBtn.Parent = playerRow
+
+local rfStroke = Instance.new("UIStroke", refreshBtn)
+rfStroke.Color = C_BORDER
+rfStroke.Thickness = 1
+
+local rankStatus = Instance.new("TextLabel")
+rankStatus.Size = UDim2.new(1, -434, 1, 0)
+rankStatus.Position = UDim2.new(0, 430, 0, 0)
+rankStatus.BackgroundTransparency = 1
+rankStatus.Text = "Commands: 0"
+rankStatus.TextColor3 = C_TEXT_DIM
+rankStatus.Font = Enum.Font.Code
+rankStatus.TextSize = 11
+rankStatus.TextXAlignment = Enum.TextXAlignment.Right
+rankStatus.Parent = playerRow
+rankStatus.ZIndex = 4
+NR.rankStatus = rankStatus
+
+-- Listboxes
+local activeListbox = nil
+local function closeActiveListbox()
+    if activeListbox then pcall(function() activeListbox:Destroy() end); activeListbox = nil end
+end
+
+local function createPlayerListbox()
+    if activeListbox then closeActiveListbox(); return end
+    local box = Instance.new("Frame")
+    box.Size = UDim2.new(0, 200, 0, 0)
+    box.Position = UDim2.new(
+        0, playerInputContainer.AbsolutePosition.X - mainFrame.AbsolutePosition.X,
+        0, playerInputContainer.AbsolutePosition.Y - mainFrame.AbsolutePosition.Y + playerInputContainer.AbsoluteSize.Y + 2
+    )
+    box.BackgroundColor3 = C_BG
+    box.BorderSizePixel = 0
+    box.ClipsDescendants = true
+    box.ZIndex = 600
+    box.Parent = mainFrame
+    
+    local boxStroke = Instance.new("UIStroke", box)
+    boxStroke.Color = C_BORDER
+    boxStroke.Thickness = 1
+    
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.Size = UDim2.new(1, 0, 1, 0)
+    scroll.BackgroundTransparency = 1
+    scroll.BorderSizePixel = 0
+    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    scroll.ScrollBarThickness = 4
+    scroll.ZIndex = 601
+    scroll.Parent = box
+    
+    local layout = Instance.new("UIListLayout", scroll)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 1)
+    
+    local pad = Instance.new("UIPadding", scroll)
+    pad.PaddingTop = UDim.new(0, 3); pad.PaddingBottom = UDim.new(0, 3)
+    pad.PaddingLeft = UDim.new(0, 3); pad.PaddingRight = UDim.new(0, 3)
+    
+    local SPECIAL = {"all", "any", "other", "me", "random"}
+    local options = {}
+    for _, s in ipairs(SPECIAL) do table.insert(options, s) end
+    for _, p in ipairs(Players:GetPlayers()) do table.insert(options, p.Name) end
+    
+    for _, opt in ipairs(options) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 22)
+        btn.BackgroundColor3 = C_BG
+        btn.BorderSizePixel = 0
+        btn.Text = opt
+        btn.TextColor3 = C_TEXT
+        btn.Font = Enum.Font.Code
+        btn.TextSize = 12
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.AutoButtonColor = false
+        btn.ZIndex = 602
+        btn.Parent = scroll
+        local bp = Instance.new("UIPadding", btn)
+        bp.PaddingLeft = UDim.new(0, 6)
+        btn.MouseEnter:Connect(function() btn.BackgroundColor3 = C_BG_HOVER end)
+        btn.MouseLeave:Connect(function() btn.BackgroundColor3 = C_BG end)
+        btn.MouseButton1Click:Connect(function()
+            playerInput.Text = opt
+            closeActiveListbox()
+        end)
+    end
+    
+    local targetSize = math.min(#options * 23 + 8, 220)
+    TweenService:Create(box, TweenInfo.new(0.15), {Size = UDim2.new(0, 200, 0, targetSize)}):Play()
+    activeListbox = box
+end
+
+playerArrow.MouseButton1Click:Connect(createPlayerListbox)
+playerInput.Focused:Connect(function() if not activeListbox then createPlayerListbox() end end)
+
+local activeRankListbox = nil
+local function closeActiveRankListbox()
+    if activeRankListbox then pcall(function() activeRankListbox:Destroy() end); activeRankListbox = nil end
+end
+
+local function createRankListbox()
+    if activeRankListbox then closeActiveRankListbox(); return end
+    local box = Instance.new("Frame")
+    box.Size = UDim2.new(0, 130, 0, 0)
+    box.Position = UDim2.new(
+        0, rankSelectContainer.AbsolutePosition.X - mainFrame.AbsolutePosition.X,
+        0, rankSelectContainer.AbsolutePosition.Y - mainFrame.AbsolutePosition.Y + rankSelectContainer.AbsoluteSize.Y + 2
+    )
+    box.BackgroundColor3 = C_BG
+    box.BorderSizePixel = 0
+    box.ClipsDescendants = true
+    box.ZIndex = 600
+    box.Parent = mainFrame
+    local boxStroke = Instance.new("UIStroke", box)
+    boxStroke.Color = C_BORDER
+    boxStroke.Thickness = 1
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.Size = UDim2.new(1, 0, 1, 0)
+    scroll.BackgroundTransparency = 1
+    scroll.BorderSizePixel = 0
+    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    scroll.ScrollBarThickness = 4
+    scroll.ZIndex = 601
+    scroll.Parent = box
+    local layout = Instance.new("UIListLayout", scroll)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 1)
+    local pad = Instance.new("UIPadding", scroll)
+    pad.PaddingTop = UDim.new(0, 3); pad.PaddingBottom = UDim.new(0, 3)
+    pad.PaddingLeft = UDim.new(0, 3); pad.PaddingRight = UDim.new(0, 3)
+    
+    for level = 5, 0, -1 do
+        local name = RANK_NAMES[level]
+        local isLocked = level > State.achievedRank
+        local isCurrent = level == State.currentRank
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 22)
+        btn.BackgroundColor3 = C_BG
+        btn.BorderSizePixel = 0
+        btn.AutoButtonColor = false
+        btn.Font = Enum.Font.Code
+        btn.TextSize = 11
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.ZIndex = 602
+        btn.Parent = scroll
+        local bp = Instance.new("UIPadding", btn)
+        bp.PaddingLeft = UDim.new(0, 6)
+        
+        if isLocked then
+            btn.Text = "[x] " .. name .. " (" .. level .. ")"
+            btn.TextColor3 = C_LOCKED
+        elseif isCurrent then
+            btn.Text = "> " .. name .. " (" .. level .. ")"
+            btn.TextColor3 = C_ACCENT
+        else
+            btn.Text = name .. " (" .. level .. ")"
+            btn.TextColor3 = C_TEXT
+            btn.MouseEnter:Connect(function() btn.BackgroundColor3 = C_BG_HOVER end)
+            btn.MouseLeave:Connect(function() btn.BackgroundColor3 = C_BG end)
+            btn.MouseButton1Click:Connect(function()
+                setCurrent(level)
+                closeActiveRankListbox()
+            end)
+        end
+    end
+    
+    local targetSize = 6 * 23 + 8
+    TweenService:Create(box, TweenInfo.new(0.15), {Size = UDim2.new(0, 130, 0, targetSize)}):Play()
+    activeRankListbox = box
+end
+
+rankSelectArrow.MouseButton1Click:Connect(createRankListbox)
+rankSelectBtn.MouseButton1Click:Connect(createRankListbox)
+
+refreshBtn.MouseButton1Click:Connect(function()
+    closeActiveListbox(); closeActiveRankListbox()
+    detect()
+    NR.generateButtons()
+    NR.addLog("refreshed — " .. State.currentName .. " (" .. State.currentRank .. ") src: " .. (State.hitSource or "—"))
+end)
+
+-- Tools grid
+local toolScroll = Instance.new("ScrollingFrame")
+toolScroll.Size = UDim2.new(1, -16, 1, -112)
+toolScroll.Position = UDim2.new(0, 8, 0, 46)
+toolScroll.BackgroundTransparency = 1
+toolScroll.BorderSizePixel = 0
+toolScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+toolScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+toolScroll.ScrollBarThickness = 6
+toolScroll.Parent = mainFrame
+toolScroll.ZIndex = 3
+
+local toolGridLayout = Instance.new("UIGridLayout", toolScroll)
+toolGridLayout.CellSize = UDim2.new(0, 130, 0, 28)
+toolGridLayout.CellPadding = UDim2.new(0, 4, 0, 4)
+toolGridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local toolPad = Instance.new("UIPadding", toolScroll)
+toolPad.PaddingLeft = UDim.new(0, 4); toolPad.PaddingTop = UDim.new(0, 4); toolPad.PaddingRight = UDim.new(0, 4)
+
+local function addCommandButton(cmd, needsPlayer)
+    local btn = Instance.new("TextButton")
+    btn.BackgroundColor3 = C_BG
+    btn.BorderSizePixel = 0
+    btn.Text = cmd
+    btn.TextColor3 = C_TEXT
+    btn.Font = Enum.Font.SourceSans
+    btn.TextSize = 11
+    btn.AutoButtonColor = false
+    btn.Parent = toolScroll
+    btn.ZIndex = 3
+    local s = Instance.new("UIStroke", btn)
+    s.Color = C_BORDER
+    s.Thickness = 1
+    btn.MouseEnter:Connect(function() btn.BackgroundColor3 = C_BG_HOVER end)
+    btn.MouseLeave:Connect(function() btn.BackgroundColor3 = C_BG end)
+    btn.MouseButton1Click:Connect(function()
+        local playerArg = playerInput.Text
+        if needsPlayer then
+            if playerArg == "" or playerArg == "me" or playerArg == "self" then
+                NR.executeCommand(";" .. cmd)
+            else
+                NR.executeCommand(";" .. cmd .. " " .. playerArg)
+            end
+        else
+            NR.executeCommand(";" .. cmd)
+        end
+    end)
+    table.insert(State.commandButtons, btn)
+end
+
+function NR.generateButtons()
+    for _, b in ipairs(State.commandButtons) do pcall(function() b:Destroy() end) end
+    State.commandButtons = {}
+    
+    if State.currentRank == 0 then
+        local ph = Instance.new("TextLabel")
+        ph.Size = UDim2.new(1, 0, 0, 60)
+        ph.BackgroundTransparency = 1
+        ph.Text = "No commands for Guest rank.\n\nSelect a rank from dropdown\nto load commands."
+        ph.TextColor3 = C_TEXT_DIM
+        ph.Font = Enum.Font.Code
+        ph.TextSize = 12
+        ph.TextWrapped = true
+        ph.Parent = toolScroll
+        ph.ZIndex = 3
+        table.insert(State.commandButtons, ph)
+    else
+        local list = HD_COMMANDS[State.currentRank]
+        if list then
+            for _, entry in ipairs(list) do addCommandButton(entry[1], entry[2]) end
+        end
+    end
+    updateUIRank()
+end
+
+-- Console
+local cmdInputRow = Instance.new("Frame")
+cmdInputRow.Size = UDim2.new(1, -24, 0, 34)
+cmdInputRow.Position = UDim2.new(0, 12, 1, -42)
+cmdInputRow.BackgroundTransparency = 1
+cmdInputRow.Parent = win
+cmdInputRow.ZIndex = 2
+
+local cmdInput = Instance.new("TextBox")
+cmdInput.Size = UDim2.new(1, -110, 1, 0)
+cmdInput.BackgroundColor3 = C_BG
+cmdInput.BorderSizePixel = 0
+cmdInput.Text = ""
+cmdInput.PlaceholderText = "Type command, press Enter"
+cmdInput.PlaceholderColor3 = C_TEXT_DIM
+cmdInput.TextColor3 = C_TEXT
+cmdInput.Font = Enum.Font.Code
+cmdInput.TextSize = 13
+cmdInput.TextXAlignment = Enum.TextXAlignment.Left
+cmdInput.ClearTextOnFocus = false
+cmdInput.Parent = cmdInputRow
+cmdInput.ZIndex = 3
+
+local ciStroke = Instance.new("UIStroke", cmdInput)
+ciStroke.Color = C_BORDER
+ciStroke.Thickness = 1
+local ciPad = Instance.new("UIPadding", cmdInput)
+ciPad.PaddingLeft = UDim.new(0, 8)
+
+local execBtn = Instance.new("TextButton")
+execBtn.Size = UDim2.new(0, 100, 1, 0)
+execBtn.Position = UDim2.new(1, -102, 0, 0)
+execBtn.BackgroundColor3 = C_ACCENT
+execBtn.BorderSizePixel = 0
+execBtn.Text = "EXECUTE"
+execBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+execBtn.Font = Enum.Font.SourceSansBold
+execBtn.TextSize = 12
+execBtn.AutoButtonColor = false
+execBtn.Parent = cmdInputRow
+execBtn.ZIndex = 3
+
+cmdInput.FocusLost:Connect(function(enterPressed)
+    if enterPressed then
+        NR.executeCommand(cmdInput.Text)
+        cmdInput.Text = ""
+    end
+end)
+
+execBtn.MouseButton1Click:Connect(function()
+    NR.executeCommand(cmdInput.Text)
+    cmdInput.Text = ""
+end)
+
+-- Minimize
+local minimized = false
+local FULL_SIZE = UDim2.new(0, 780, 0, 540)
+local MIN_SIZE = UDim2.new(0, 780, 0, 32)
+
+minimize.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    if minimized then
+        overlay.Visible = false
+        mainFrame.Visible = false
+        cmdInputRow.Visible = false
+        TweenService:Create(win, TweenInfo.new(0.2), {Size = MIN_SIZE}):Play()
+    else
+        if State.injected then
+            mainFrame.Visible = true
+            cmdInputRow.Visible = true
+        else
+            overlay.Visible = true
+        end
+        TweenService:Create(win, TweenInfo.new(0.2), {Size = FULL_SIZE}):Play()
+    end
+end)
+
+close.MouseButton1Click:Connect(function() gui:Destroy() end)
+
+-- ═══════════════════════════════════════════════════════════
+-- INJECT
+-- ═══════════════════════════════════════════════════════════
+local function inject()
+    if State.injected then return end
+    NR.addLog("injecting")
+    
+    task.spawn(function()
+        setProgress(0.05, "Initializing...")
+        task.wait(0.3)
+        
+        setProgress(0.15, "Detecting rank...")
+        detect()
+        task.wait(0.3)
+        
+        setProgress(0.25, "Collecting remotes...")
+        collectRemotes()
+        task.wait(0.3)
+        
+        if CONFIG.AUTO_ESCALATE then
+            setProgress(0.4, "Escalating...")
+            escalate()
+        end
+        
+        setProgress(0.85, "Building UI...")
+        task.wait(0.3)
+        NR.generateButtons()
+        
+        setProgress(1.0, "Complete")
+        task.wait(0.4)
+        
+        State.injected = true
+        overlay.Visible = false
+        mainFrame.Visible = true
+        cmdInputRow.Visible = true
+        
+        watchNotifications()
+        
+        NR.notify("NullRoot", string.format("Ready — %s (%d)", State.currentName, State.currentRank), 4)
+        NR.addLog("Ready — " .. State.currentName .. " (" .. State.currentRank .. ") src: " .. (State.hitSource or "—"))
+    end)
+end
+
+NR.inject = inject
+task.spawn(inject)
+
+NR.addLog("Admin Panel loaded")
